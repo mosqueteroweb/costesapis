@@ -20,15 +20,40 @@ export function useModelsData() {
         const allProviders: Provider[] = [];
 
         Object.entries(data).forEach(([providerId, provider]) => {
+          if (!provider || typeof provider !== 'object') return;
+
           allProviders.push({ ...provider, id: providerId });
-          if (provider.models) {
+
+          if (provider.models && typeof provider.models === 'object') {
             Object.entries(provider.models).forEach(([modelId, modelData]) => {
-              if (modelData && modelData.name && modelData.cost && modelData.limit) {
+              // Ensure we have the minimum required data to avoid crashes
+              if (modelData &&
+                  modelData.name &&
+                  modelData.cost &&
+                  typeof modelData.cost === 'object' &&
+                  modelData.limit &&
+                  typeof modelData.limit === 'object') {
+
+                // Set default values for missing cost/limit fields to prevent NaN in calculations
+                const safeCost = {
+                  input: typeof modelData.cost.input === 'number' ? modelData.cost.input : 0,
+                  output: typeof modelData.cost.output === 'number' ? modelData.cost.output : 0,
+                  cache_read: typeof modelData.cost.cache_read === 'number' ? modelData.cost.cache_read : 0,
+                  cache_write: typeof modelData.cost.cache_write === 'number' ? modelData.cost.cache_write : 0,
+                };
+
+                const safeLimit = {
+                  context: typeof modelData.limit.context === 'number' ? modelData.limit.context : 0,
+                  output: typeof modelData.limit.output === 'number' ? modelData.limit.output : 0,
+                };
+
                 allModels.push({
                   ...modelData,
                   id: modelId,
                   providerId,
-                  providerName: provider.name
+                  providerName: provider.name || providerId,
+                  cost: safeCost,
+                  limit: safeLimit
                 } as Model);
               }
             });
