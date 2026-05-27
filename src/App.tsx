@@ -37,6 +37,10 @@ function App() {
   // Calculator State
   const [inputTokens, setInputTokens] = useState(100000); // Default 100k
   const [outputTokens, setOutputTokens] = useState(10000);  // Default 10k
+  const [reasoningTokens, setReasoningTokens] = useState(0);
+  const [cacheReadTokens, setCacheReadTokens] = useState(0);
+  const [cacheWriteTokens, setCacheWriteTokens] = useState(0);
+  const [apiCalls, setApiCalls] = useState(1);
 
   // Selection
   const [selectedModelsForComparison, setSelectedModelsForComparison] = useState<string[]>([]);
@@ -78,9 +82,15 @@ function App() {
         return b.limit.context - a.limit.context;
       }
       if (sortBy === 'cost') {
-        const costA = (a.cost.input * inputTokens + a.cost.output * outputTokens) / 1000000;
-        const costB = (b.cost.input * inputTokens + b.cost.output * outputTokens) / 1000000;
-        return costA - costB;
+        const calculateCost = (m: Model) => {
+          const inputBase = (m.cost.input * inputTokens) / 1000000;
+          const outputBase = (m.cost.output * outputTokens) / 1000000;
+          const reasoning = m.reasoning ? (m.cost.output * reasoningTokens) / 1000000 : 0;
+          const cacheRead = (m.cost.cache_read || 0) * cacheReadTokens / 1000000;
+          const cacheWrite = (m.cost.cache_write || 0) * cacheWriteTokens / 1000000;
+          return (inputBase + outputBase + reasoning + cacheRead + cacheWrite) * apiCalls;
+        };
+        return calculateCost(a) - calculateCost(b);
       }
       return a.name.localeCompare(b.name);
     });
@@ -223,8 +233,58 @@ function App() {
                   className="w-full h-1.5 bg-white/5 rounded-lg appearance-none cursor-pointer accent-secondary"
                 />
               </div>
+              <div>
+                <div className="flex justify-between mb-2">
+                  <label className="text-xs text-text-secondary font-medium">Reasoning Tokens</label>
+                  <span className="text-xs font-mono text-secondary">{reasoningTokens.toLocaleString()}</span>
+                </div>
+                <input
+                  type="range"
+                  min="0"
+                  max="100000"
+                  step="100"
+                  value={reasoningTokens}
+                  onChange={(e) => setReasoningTokens(parseInt(e.target.value))}
+                  className="w-full h-1.5 bg-white/5 rounded-lg appearance-none cursor-pointer accent-purple-500"
+                />
+              </div>
+              <div className="grid grid-cols-2 gap-4">
+                <div>
+                  <label className="text-[10px] text-text-secondary font-medium block mb-1">Cache Read</label>
+                  <input
+                    type="number"
+                    value={cacheReadTokens}
+                    onChange={(e) => setCacheReadTokens(parseInt(e.target.value) || 0)}
+                    className="w-full bg-black/20 border border-white/5 rounded-lg px-2 py-1 text-xs focus:outline-none focus:border-primary/50"
+                  />
+                </div>
+                <div>
+                  <label className="text-[10px] text-text-secondary font-medium block mb-1">Cache Write</label>
+                  <input
+                    type="number"
+                    value={cacheWriteTokens}
+                    onChange={(e) => setCacheWriteTokens(parseInt(e.target.value) || 0)}
+                    className="w-full bg-black/20 border border-white/5 rounded-lg px-2 py-1 text-xs focus:outline-none focus:border-primary/50"
+                  />
+                </div>
+              </div>
+              <div>
+                <div className="flex justify-between mb-2">
+                  <label className="text-xs text-text-secondary font-medium">API Calls</label>
+                  <span className="text-xs font-mono text-primary">{apiCalls.toLocaleString()}</span>
+                </div>
+                <input
+                  type="range"
+                  min="1"
+                  max="1000"
+                  step="1"
+                  value={apiCalls}
+                  onChange={(e) => setApiCalls(parseInt(e.target.value))}
+                  className="w-full h-1.5 bg-white/5 rounded-lg appearance-none cursor-pointer accent-indigo-500"
+                />
+              </div>
               <div className="pt-2 text-[10px] text-text-secondary leading-relaxed italic">
-                * Prices calculated per { (inputTokens + outputTokens).toLocaleString() } tokens total.
+                * Prices calculated per { ((inputTokens + outputTokens + reasoningTokens + cacheReadTokens + cacheWriteTokens) * apiCalls).toLocaleString() } total tokens.
               </div>
             </div>
           </div>
@@ -363,7 +423,14 @@ function App() {
                     <div className="text-right">
                       <p className="text-[10px] text-text-secondary uppercase font-bold tracking-tighter">Est. Cost</p>
                       <p className="text-lg font-mono font-bold text-emerald-500">
-                        ${((model.cost.input * inputTokens + model.cost.output * outputTokens) / 1000000).toFixed(4)}
+                        ${(
+                          ((model.cost.input * inputTokens) / 1000000 +
+                           (model.cost.output * outputTokens) / 1000000 +
+                           (model.reasoning ? (model.cost.output * reasoningTokens) / 1000000 : 0) +
+                           ((model.cost.cache_read || 0) * cacheReadTokens) / 1000000 +
+                           ((model.cost.cache_write || 0) * cacheWriteTokens) / 1000000
+                          ) * apiCalls
+                        ).toFixed(4)}
                       </p>
                     </div>
                   </div>
@@ -407,28 +474,33 @@ function App() {
                 <h3 className="text-xl font-bold mb-6 flex items-center gap-2">
                   <TrendingUp className="text-emerald-500" /> Top 10 Models by Input Cost ($ per 1M)
                 </h3>
-                <div className="glass-card rounded-3xl p-8 space-y-4">
-                  {[...filteredModels]
-                    .sort((a, b) => a.cost.input - b.cost.input)
-                    .slice(0, 10)
-                    .map((model) => {
-                      const maxCost = Math.max(...filteredModels.map(m => m.cost.input));
-                      const width = (model.cost.input / maxCost) * 100;
-                      return (
-                        <div key={model.id} className="space-y-1">
-                          <div className="flex justify-between text-xs font-medium">
-                            <span>{model.name}</span>
-                            <span className="font-mono text-emerald-500">${model.cost.input.toFixed(2)}</span>
-                          </div>
-                          <div className="h-2 w-full bg-white/5 rounded-full overflow-hidden">
-                            <div
-                              className="h-full bg-gradient-to-r from-emerald-500 to-emerald-400 rounded-full transition-all duration-1000"
-                              style={{ width: `${Math.max(width, 1)}%` }}
-                            ></div>
-                          </div>
-                        </div>
-                      );
-                    })}
+                <div className="glass-card rounded-3xl p-8">
+                  <svg viewBox="0 0 800 400" className="w-full h-auto overflow-visible">
+                    {[...filteredModels]
+                      .sort((a, b) => a.cost.input - b.cost.input)
+                      .slice(0, 10)
+                      .map((model, i) => {
+                        const maxCost = Math.max(...filteredModels.map(m => m.cost.input)) || 1;
+                        const width = (model.cost.input / maxCost) * 600;
+                        const y = i * 40;
+                        return (
+                          <g key={model.id} className="group">
+                            <text x="0" y={y + 25} className="fill-text-secondary text-[12px] font-medium" dominantBaseline="middle">
+                              {model.name.length > 20 ? model.name.substring(0, 17) + '...' : model.name}
+                            </text>
+                            <rect
+                              x="150" y={y + 10}
+                              width={Math.max(width, 2)} height="20"
+                              rx="4"
+                              className="fill-emerald-500/80 group-hover:fill-emerald-500 transition-all duration-500"
+                            />
+                            <text x={160 + Math.max(width, 2)} y={y + 25} className="fill-emerald-500 text-[10px] font-bold font-mono" dominantBaseline="middle">
+                              ${model.cost.input.toFixed(2)}
+                            </text>
+                          </g>
+                        );
+                      })}
+                  </svg>
                 </div>
               </div>
 
@@ -436,30 +508,35 @@ function App() {
                 <h3 className="text-xl font-bold mb-6 flex items-center gap-2">
                   <Box className="text-primary" /> Context Efficiency (Tokens per Dollar)
                 </h3>
-                <div className="glass-card rounded-3xl p-8 space-y-4">
-                  {[...filteredModels]
-                    .filter(m => m.cost.input > 0)
-                    .sort((a, b) => (b.limit.context / (b.cost.input || 0.01)) - (a.limit.context / (a.cost.input || 0.01)))
-                    .slice(0, 10)
-                    .map((model) => {
-                      const efficiency = model.limit.context / (model.cost.input || 0.01);
-                      const maxEfficiency = Math.max(...filteredModels.map(m => m.limit.context / (m.cost.input || 0.01)));
-                      const width = (efficiency / maxEfficiency) * 100;
-                      return (
-                        <div key={model.id} className="space-y-1">
-                          <div className="flex justify-between text-xs font-medium">
-                            <span>{model.name}</span>
-                            <span className="font-mono text-primary">{(efficiency/1000).toFixed(0)}K tokens/$</span>
-                          </div>
-                          <div className="h-2 w-full bg-white/5 rounded-full overflow-hidden">
-                            <div
-                              className="h-full bg-gradient-to-r from-primary to-secondary rounded-full transition-all duration-1000"
-                              style={{ width: `${Math.max(width, 1)}%` }}
-                            ></div>
-                          </div>
-                        </div>
-                      );
-                    })}
+                <div className="glass-card rounded-3xl p-8">
+                  <svg viewBox="0 0 800 400" className="w-full h-auto overflow-visible">
+                    {[...filteredModels]
+                      .filter(m => m.cost.input > 0)
+                      .sort((a, b) => (b.limit.context / (b.cost.input || 0.01)) - (a.limit.context / (a.cost.input || 0.01)))
+                      .slice(0, 10)
+                      .map((model, i) => {
+                        const efficiency = model.limit.context / (model.cost.input || 0.01);
+                        const maxEfficiency = Math.max(...filteredModels.map(m => m.limit.context / (m.cost.input || 0.01))) || 1;
+                        const width = (efficiency / maxEfficiency) * 600;
+                        const y = i * 40;
+                        return (
+                          <g key={model.id} className="group">
+                            <text x="0" y={y + 25} className="fill-text-secondary text-[12px] font-medium" dominantBaseline="middle">
+                              {model.name.length > 20 ? model.name.substring(0, 17) + '...' : model.name}
+                            </text>
+                            <rect
+                              x="150" y={y + 10}
+                              width={Math.max(width, 2)} height="20"
+                              rx="4"
+                              className="fill-indigo-500/80 group-hover:fill-indigo-500 transition-all duration-500"
+                            />
+                            <text x={160 + Math.max(width, 2)} y={y + 25} className="fill-indigo-500 text-[10px] font-bold font-mono" dominantBaseline="middle">
+                              {(efficiency/1000).toFixed(0)}K tokens/$
+                            </text>
+                          </g>
+                        );
+                      })}
+                  </svg>
                 </div>
               </div>
             </div>
@@ -556,7 +633,14 @@ function App() {
                       <td className="p-4 border-b border-white/5 font-bold text-text-secondary">Simulated Cost</td>
                       {selectedModelsForComparison.map(id => {
                         const m = models.find(m => m.id === id);
-                        const cost = m ? (m.cost.input * inputTokens + m.cost.output * outputTokens) / 1000000 : 0;
+                        const cost = m ? (
+                          ((m.cost.input * inputTokens) / 1000000 +
+                           (m.cost.output * outputTokens) / 1000000 +
+                           (m.reasoning ? (m.cost.output * reasoningTokens) / 1000000 : 0) +
+                           ((m.cost.cache_read || 0) * cacheReadTokens) / 1000000 +
+                           ((m.cost.cache_write || 0) * cacheWriteTokens) / 1000000
+                          ) * apiCalls
+                        ) : 0;
                         return (
                           <td key={id} className="p-4 border-b border-white/5 font-bold text-lg text-emerald-500 font-mono">
                             ${cost.toFixed(4)}

@@ -12,7 +12,7 @@ export function useModelsData() {
       try {
         const response = await fetch('https://models.dev/api.json');
         if (!response.ok) {
-          throw new Error('Failed to fetch data');
+          throw new Error('Failed to fetch data from models.dev API');
         }
         const data: ApiResponse = await response.json();
 
@@ -21,18 +21,24 @@ export function useModelsData() {
 
         Object.entries(data).forEach(([providerId, provider]) => {
           allProviders.push({ ...provider, id: providerId });
-          Object.entries(provider.models).forEach(([, modelData]) => {
-            allModels.push({
-              ...modelData,
-              providerId,
-              providerName: provider.name
-            } as Model);
-          });
+          if (provider.models) {
+            Object.entries(provider.models).forEach(([modelId, modelData]) => {
+              if (modelData && modelData.name && modelData.cost && modelData.limit) {
+                allModels.push({
+                  ...modelData,
+                  id: modelId,
+                  providerId,
+                  providerName: provider.name
+                } as Model);
+              }
+            });
+          }
         });
 
         setModels(allModels);
         setProviders(allProviders);
       } catch (err) {
+        console.error('Fetch error:', err);
         setError(err instanceof Error ? err.message : 'An unknown error occurred');
       } finally {
         setLoading(false);
